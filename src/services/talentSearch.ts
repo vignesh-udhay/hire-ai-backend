@@ -1,6 +1,7 @@
 import {
   TalentSearchQuery,
   TalentProfile,
+  TalentProfileResponse,
   TalentSearchResponse,
   AIProject,
 } from "../types/talent";
@@ -61,21 +62,21 @@ export class TalentSearchService {
         )
       );
       score += (skillMatches.length / extractedSkills.length) * 40;
-    }
-
-    // Requirements match (up to 30 points)
+    } // Requirements match (up to 30 points)
     if (extractedRequirements.length > 0) {
       const requirementMatches = extractedRequirements.filter((req) => {
         const reqLower = req.toLowerCase();
         return (
           profile.title.toLowerCase().includes(reqLower) ||
           profile.highlights.some((h) => h.toLowerCase().includes(reqLower)) ||
-          profile.aiExperience.domains.some((d) =>
+          (profile.aiExperience?.domains.some((d) =>
             d.toLowerCase().includes(reqLower)
-          ) ||
-          profile.aiExperience.frameworks.some((f) =>
+          ) ??
+            false) ||
+          (profile.aiExperience?.frameworks.some((f) =>
             f.toLowerCase().includes(reqLower)
-          )
+          ) ??
+            false)
         );
       });
       score += (requirementMatches.length / extractedRequirements.length) * 30;
@@ -127,15 +128,13 @@ export class TalentSearchService {
           }
         }
       }
-    }
-
-    // If no criteria were evaluated, return a base score based on profile quality
+    } // If no criteria were evaluated, return a base score based on profile quality
     if (score === 0) {
       // Base score on profile completeness and activity
       if (profile.skills.length > 0) score += 20;
       if (profile.highlights.length > 0) score += 20;
-      if (profile.aiExperience.frameworks.length > 0) score += 20;
-      if (profile.aiExperience.domains.length > 0) score += 20;
+      if ((profile.aiExperience?.frameworks.length ?? 0) > 0) score += 20;
+      if ((profile.aiExperience?.domains.length ?? 0) > 0) score += 20;
       if (profile.experience > 0) score += 20;
     }
 
@@ -166,83 +165,49 @@ export class TalentSearchService {
 
   async searchTalent(query: SearchQuery): Promise<TalentSearchResponse> {
     try {
-      // Process natural language query and derive filters
+      // Process natural language query and GitHub search in parallel for better performance
+      const [nlpResult, githubResponse] = await Promise.all([
+        this.processNaturalLanguageQuery(query.query),
+        this.githubService.searchUsers(
+          query.query,
+          Math.floor((query.offset || 0) / (query.limit || 10)) + 1,
+          query.limit || 10
+        ),
+      ]);
+
       const {
         extractedSkills,
         extractedRequirements,
         confidence,
         derivedFilters,
-      } = await this.processNaturalLanguageQuery(query.query);
+      } = nlpResult;
 
-      // Search GitHub for matching profiles
-      const githubProfiles = await this.githubService.searchUsers(query.query);
-
-      // Apply derived filters and calculate match scores
-      let filteredResults = githubProfiles
-        .map((profile) => ({
-          ...profile,
-          matchScore: this.calculateMatchScore(
-            profile,
-            extractedSkills,
-            extractedRequirements,
-            derivedFilters
-          ),
-        }))
-        .filter((profile) => {
-          // Only apply filters that weren't already applied at the GitHub API level
-          if (
-            derivedFilters.aiExperience?.domains &&
-            !derivedFilters.aiExperience.domains.every((domain) =>
-              profile.aiExperience.domains.includes(domain)
-            )
-          ) {
-            return false;
-          }
-          if (
-            derivedFilters.aiExperience?.frameworks &&
-            !derivedFilters.aiExperience.frameworks.every((framework) =>
-              profile.aiExperience.frameworks.includes(framework)
-            )
-          ) {
-            return false;
-          }
-          if (
-            derivedFilters.employmentType &&
-            profile.employmentPreferences.type !== derivedFilters.employmentType
-          ) {
-            return false;
-          }
-          if (
-            derivedFilters.availability &&
-            profile.availability !== derivedFilters.availability
-          ) {
-            return false;
-          }
-          return true;
-        });
-
-      // Sort results by match score (though they should already be sorted from GitHub service)
-      filteredResults.sort((a, b) => b.matchScore - a.matchScore);
-
-      // Calculate match distribution
-      const matchDistribution = {
-        bySeniority: this.calculateDistribution(filteredResults, "seniority"),
-        byLocation: this.calculateDistribution(filteredResults, "location"),
-        byAvailability: this.calculateDistribution(
-          filteredResults,
-          "availability"
-        ),
-      };
-
-      // Apply pagination
-      const paginatedResults = filteredResults.slice(
-        query.offset ?? 0,
-        (query.offset ?? 0) + (query.limit ?? 10)
+      // Apply optimized filtering and scoring
+      const filteredResults = this.filterAndScoreProfilesOptimized(
+        githubResponse.profiles,
+        extractedSkills,
+        extractedRequirements,
+        derivedFilters
       );
 
+      // Sort results by match score
+      filteredResults.sort((a, b) => b.matchScore - a.matchScore);
+
+      // Transform profiles to response format
+      const transformedResults: TalentProfileResponse[] = filteredResults.map(
+        (profile) => ({
+          ...profile,
+          experience: `${profile.experience} years`,
+        })
+      );
+
+      // Calculate distributions efficiently
+      const matchDistribution =
+        this.calculateDistributionsOptimized(filteredResults);
+
       return {
-        results: paginatedResults,
-        total: filteredResults.length,
+        results: transformedResults,
+        total: githubResponse.total,
         page: Math.floor((query.offset ?? 0) / (query.limit ?? 10)) + 1,
         limit: query.limit ?? 10,
         searchMetadata: {
@@ -272,5 +237,249 @@ export class TalentSearchService {
       }
     });
     return distribution;
+  }
+
+  // Optimized filtering and scoring method
+  private filterAndScoreProfilesOptimized(
+    profiles: TalentProfile[],
+    extractedSkills: string[],
+    extractedRequirements: string[],
+    derivedFilters: any
+  ): TalentProfile[] {
+    // Pre-compile filter conditions for better performance
+    const filterConditions = {
+      hasAIDomainsFilter: derivedFilters.aiExperience?.domains?.length > 0,
+      hasAIFrameworksFilter:
+        derivedFilters.aiExperience?.frameworks?.length > 0,
+      hasEmploymentTypeFilter: !!derivedFilters.employmentType,
+      hasAvailabilityFilter: !!derivedFilters.availability,
+      aiDomains: derivedFilters.aiExperience?.domains || [],
+      aiFrameworks: derivedFilters.aiExperience?.frameworks || [],
+      employmentType: derivedFilters.employmentType,
+      availability: derivedFilters.availability,
+    };
+
+    return profiles
+      .map((profile) => ({
+        ...profile,
+        matchScore: this.calculateMatchScoreOptimized(
+          profile,
+          extractedSkills,
+          extractedRequirements,
+          derivedFilters
+        ),
+      }))
+      .filter((profile) => {
+        // Apply pre-compiled filter conditions
+        if (
+          filterConditions.hasAIDomainsFilter &&
+          profile.aiExperience &&
+          !filterConditions.aiDomains.every((domain: string) =>
+            profile.aiExperience!.domains.includes(domain)
+          )
+        ) {
+          return false;
+        }
+
+        if (
+          filterConditions.hasAIFrameworksFilter &&
+          profile.aiExperience &&
+          !filterConditions.aiFrameworks.every((framework: string) =>
+            profile.aiExperience!.frameworks.includes(framework)
+          )
+        ) {
+          return false;
+        }
+
+        if (
+          filterConditions.hasEmploymentTypeFilter &&
+          profile.employmentPreferences &&
+          profile.employmentPreferences.type !== filterConditions.employmentType
+        ) {
+          return false;
+        }
+
+        if (
+          filterConditions.hasAvailabilityFilter &&
+          profile.availability !== filterConditions.availability
+        ) {
+          return false;
+        }
+
+        return true;
+      });
+  }
+
+  // Optimized match score calculation
+  private calculateMatchScoreOptimized(
+    profile: TalentProfile,
+    extractedSkills: string[],
+    extractedRequirements: string[],
+    derivedFilters: any
+  ): number {
+    let score = 0;
+    const maxScore = 100;
+
+    // Pre-process skills and requirements for faster comparison
+    const profileSkillsLower = profile.skills.map((skill) =>
+      skill.toLowerCase()
+    );
+    const profileHighlightsLower = profile.highlights.map((h) =>
+      h.toLowerCase()
+    );
+    const profileTitleLower = profile.title.toLowerCase();
+    const profileAIDomains =
+      profile.aiExperience?.domains.map((d) => d.toLowerCase()) || [];
+    const profileAIFrameworks =
+      profile.aiExperience?.frameworks.map((f) => f.toLowerCase()) || [];
+
+    // Skills match (up to 40 points) - optimized
+    if (extractedSkills.length > 0) {
+      const skillMatches = extractedSkills.filter((skill) => {
+        const skillLower = skill.toLowerCase();
+        return profileSkillsLower.some((pSkill) => pSkill.includes(skillLower));
+      });
+      score += (skillMatches.length / extractedSkills.length) * 40;
+    }
+
+    // Requirements match (up to 30 points) - optimized
+    if (extractedRequirements.length > 0) {
+      const requirementMatches = extractedRequirements.filter((req) => {
+        const reqLower = req.toLowerCase();
+        return (
+          profileTitleLower.includes(reqLower) ||
+          profileHighlightsLower.some((h) => h.includes(reqLower)) ||
+          profileAIDomains.some((d) => d.includes(reqLower)) ||
+          profileAIFrameworks.some((f) => f.includes(reqLower))
+        );
+      });
+      score += (requirementMatches.length / extractedRequirements.length) * 30;
+    }
+
+    // Experience match (up to 20 points) - unchanged but cached
+    if (derivedFilters?.experience) {
+      const experienceDiff = Math.abs(
+        profile.experience - derivedFilters.experience
+      );
+      if (experienceDiff <= 2) {
+        score += 20;
+      } else if (experienceDiff <= 4) {
+        score += 15;
+      } else if (experienceDiff <= 6) {
+        score += 10;
+      } else if (profile.experience >= derivedFilters.experience * 0.7) {
+        score += 5;
+      }
+    }
+
+    // Location match (up to 10 points) - optimized with pre-compiled map
+    if (derivedFilters?.location) {
+      score += this.calculateLocationScore(
+        profile.location,
+        derivedFilters.location
+      );
+    }
+
+    // Base quality score if no criteria matched
+    if (score === 0) {
+      score += this.calculateBaseQualityScore(profile);
+    }
+
+    return Math.min(1, Math.max(0, score / maxScore));
+  }
+
+  // Helper method for location scoring
+  private calculateLocationScore(
+    profileLocation: string,
+    searchLocation: string
+  ): number {
+    const locationMap: Record<string, string[]> = {
+      bangalore: ["bangalore", "bengaluru", "bangaluru"],
+      mumbai: ["mumbai", "bombay"],
+      delhi: ["delhi", "new delhi", "ncr"],
+      hyderabad: ["hyderabad", "secunderabad"],
+      chennai: ["chennai", "madras"],
+      pune: ["pune", "puna"],
+    };
+
+    const profileLocationLower = profileLocation.toLowerCase();
+    const searchLocationLower = searchLocation.toLowerCase();
+
+    if (profileLocationLower === searchLocationLower) {
+      return 10;
+    }
+
+    for (const [standard, variations] of Object.entries(locationMap)) {
+      if (
+        variations.includes(searchLocationLower) &&
+        variations.includes(profileLocationLower)
+      ) {
+        return 10;
+      }
+    }
+
+    return 0;
+  }
+
+  // Helper method for base quality scoring
+  private calculateBaseQualityScore(profile: TalentProfile): number {
+    let score = 0;
+    if (profile.skills.length > 0) score += 20;
+    if (profile.highlights.length > 0) score += 20;
+    if ((profile.aiExperience?.frameworks.length ?? 0) > 0) score += 20;
+    if ((profile.aiExperience?.domains.length ?? 0) > 0) score += 20;
+    if (profile.experience > 0) score += 20;
+    return score;
+  }
+
+  // Optimized distribution calculation
+  private calculateDistributionsOptimized(profiles: TalentProfile[]): {
+    bySeniority: Record<string, number>;
+    byLocation: Record<string, number>;
+    byAvailability: Record<string, number>;
+  } {
+    const distributions = {
+      bySeniority: {} as Record<string, number>,
+      byLocation: {} as Record<string, number>,
+      byAvailability: {} as Record<string, number>,
+    };
+
+    // Single pass through profiles for all distributions
+    profiles.forEach((profile) => {
+      // Seniority distribution
+      const seniority = profile.seniority || "unknown";
+      distributions.bySeniority[seniority] =
+        (distributions.bySeniority[seniority] || 0) + 1;
+
+      // Location distribution
+      const location = profile.location || "unknown";
+      distributions.byLocation[location] =
+        (distributions.byLocation[location] || 0) + 1;
+
+      // Availability distribution
+      const availability = profile.availability || "unknown";
+      distributions.byAvailability[availability] =
+        (distributions.byAvailability[availability] || 0) + 1;
+    });
+
+    return distributions;
+  } // Get detailed talent profile - optimized for when user clicks on candidate card
+  async getTalentDetails(id: string): Promise<TalentProfile | null> {
+    try {
+      // For GitHub profiles, the "id" is actually the GitHub username (stored in name field)
+      // We need to fetch from GitHub by username, not by numeric ID
+
+      // First, try to find the profile by ID to get the username
+      // Since this is a details request, we need to convert ID to username
+      // For now, we'll assume the frontend should pass the username instead of ID
+
+      // The frontend should pass the 'name' field (GitHub username) as the ID parameter
+      // Let's fetch the detailed profile using the username
+      const profile = await this.githubService.getUserById(id);
+      return profile;
+    } catch (error) {
+      console.error("Error fetching talent details:", error);
+      return null;
+    }
   }
 }

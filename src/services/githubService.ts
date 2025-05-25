@@ -1,6 +1,7 @@
 import { Octokit } from "octokit";
-import { TalentProfile } from "../types/talent";
+import { TalentProfile, AIExperience } from "../types/talent";
 import { GroqService } from "./groqService";
+import { config } from "../config";
 
 export class GitHubService {
   private octokit: Octokit;
@@ -9,106 +10,186 @@ export class GitHubService {
   constructor() {
     // Initialize Octokit with GitHub token
     this.octokit = new Octokit({
-      auth: process.env.GITHUB_TOKEN,
+      auth: config.github.token,
     });
 
     // Initialize Groq service
     this.groqService = new GroqService();
   }
-
-  async searchUsers(query: string): Promise<TalentProfile[]> {
+  async searchUsers(
+    query: string,
+    page: number = 1,
+    perPage: number = 10
+  ): Promise<{ profiles: TalentProfile[]; total: number }> {
     try {
       // Parse the query using Groq service
       const parsedQuery = await this.groqService.parseQuery(query);
-      console.log("Original query:", query);
-      console.log("Parsed query:", parsedQuery);
-
-      // Enhance the search query with additional filters
       const enhancedQuery = this.buildEnhancedSearchQuery(parsedQuery);
-      console.log("Enhanced query:", enhancedQuery);
 
-      // Search for users based on the enhanced query
+      // Search for users based on the enhanced query with pagination
       const searchResponse = await this.octokit.rest.search.users({
         q: enhancedQuery,
-        per_page: 20, // Increased to get more potential matches
+        per_page: perPage,
+        page: page,
       });
-      console.log("Search response:", searchResponse.data);
 
-      // Get detailed information for each user
-      const userProfiles = await Promise.all(
-        searchResponse.data.items.map(async (user) => {
-          // Get user details
-          const userDetails = await this.octokit.rest.users.getByUsername({
-            username: user.login,
-          });
-
-          // Get user repositories with more detailed information
-          const repos = await this.octokit.rest.repos.listForUser({
-            username: user.login,
-            sort: "updated",
-            per_page: 10, // Increased to get more repository data
-            direction: "desc",
-          });
-
-          // Get user's primary programming languages and technologies
-          const languages = new Set<string>();
-          const technologies = new Set<string>();
-          for (const repo of repos.data) {
-            if (repo.language) {
-              languages.add(repo.language);
-            }
-            // Extract technologies from repository topics
-            if (repo.topics) {
-              repo.topics.forEach((topic) => technologies.add(topic));
-            }
-          }
-
-          // Calculate experience based on account age and activity
-          const accountAge =
-            new Date().getFullYear() -
-            new Date(userDetails.data.created_at).getFullYear();
-          const experience = Math.max(accountAge, 1);
-
-          // Create talent profile from GitHub data
-          const profile: TalentProfile = {
-            id: user.id.toString(),
-            name: userDetails.data.name || user.login,
-            title: this.inferTitleFromBio(userDetails.data.bio || ""),
-            experience,
-            skills: Array.from(languages),
-            location: userDetails.data.location || "Unknown",
-            availability: "open",
-            source: "github",
-            matchScore: this.calculateMatchScore(user, repos.data),
-            highlights: this.generateHighlights(user, repos.data),
-            aiExperience: this.extractAIExperience(
-              userDetails.data.bio || "",
-              repos.data
-            ),
-            employmentPreferences: {
-              type: "full-time",
-              remote: true,
-              relocation: false,
-            },
-            seniority: this.inferSeniority(experience, repos.data),
-            screeningStatus: {
-              automated: true,
-              score: this.calculateScreeningScore(user, repos.data),
-              notes: this.generateScreeningNotes(user, repos.data),
-              recommended: false,
-            },
-          };
-
-          return profile;
-        })
+      // Create lightweight profiles without additional API calls for better performance
+      const userProfiles = searchResponse.data.items.map((user) =>
+        this.createLightweightProfile(user)
       );
 
-      // Sort profiles by match score before returning
-      return userProfiles.sort((a, b) => b.matchScore - a.matchScore);
+      return {
+        profiles: userProfiles,
+        total: searchResponse.data.total_count,
+      };
     } catch (error) {
       console.error("Error searching GitHub users:", error);
       throw error;
     }
+  }
+  private createLightweightProfile(user: any): TalentProfile {
+    // Create a lightweight profile with minimal data from search results
+    const bio = user.bio || "";
+    const title = this.inferTitleFromBio(bio);
+    const skills = this.extractSkillsFromBio(bio);
+    const aiExperience = this.extractBasicAIExperience(bio);
+    const experience = this.estimateExperienceFromAccount(user);
+    return {
+      id: user.login, // Use GitHub username as ID for easier API calls
+      name: user.name || user.login, // Use display name if available, fallback to username
+      title,
+      experience,
+      skills,
+      location: user.location || "Not specified",
+      availability: "open" as const,
+      source: "github" as const,
+      matchScore: 0, // Will be calculated by talent search service
+      highlights: this.generateBasicHighlights(user),
+      avatar: user.avatar_url,
+      summary:
+        bio || `GitHub developer with ${user.public_repos} public repositories`,
+      aiExperience,
+      employmentPreferences: {
+        type: "full-time" as const,
+        remote: true,
+        relocation: false,
+      },
+      seniority: this.inferSeniority(experience, []),
+      screeningStatus: {
+        automated: false,
+        score: 0,
+        notes: [],
+        recommended: false,
+      },
+    };
+  }
+
+  private extractSkillsFromBio(bio: string): string[] {
+    // Extract skills from bio using common programming terms
+    const commonSkills = [
+      "JavaScript",
+      "TypeScript",
+      "Python",
+      "Java",
+      "C++",
+      "React",
+      "Node.js",
+      "Angular",
+      "Vue",
+      "Docker",
+      "Kubernetes",
+      "AWS",
+      "Azure",
+      "GCP",
+      "TensorFlow",
+      "PyTorch",
+      "Machine Learning",
+      "AI",
+      "Data Science",
+      "MongoDB",
+      "PostgreSQL",
+      "MySQL",
+      "Redis",
+      "GraphQL",
+      "REST",
+    ];
+
+    const skills: string[] = [];
+    const bioLower = bio.toLowerCase();
+
+    for (const skill of commonSkills) {
+      if (bioLower.includes(skill.toLowerCase())) {
+        skills.push(skill);
+      }
+    }
+
+    return skills.slice(0, 10); // Limit to 10 skills
+  }
+
+  private extractBasicAIExperience(bio: string): AIExperience {
+    // Extract basic AI experience from bio
+    const aiFrameworks = [
+      "TensorFlow",
+      "PyTorch",
+      "Keras",
+      "Scikit-learn",
+      "Hugging Face",
+    ];
+    const aiDomains = [
+      "Machine Learning",
+      "Deep Learning",
+      "NLP",
+      "Computer Vision",
+      "AI",
+    ];
+
+    const bioLower = bio.toLowerCase();
+    const frameworks = aiFrameworks.filter((f) =>
+      bioLower.includes(f.toLowerCase())
+    );
+    const domains = aiDomains.filter((d) => bioLower.includes(d.toLowerCase()));
+
+    return {
+      years: frameworks.length > 0 || domains.length > 0 ? 1 : 0,
+      frameworks,
+      domains,
+      projects: [], // Will be populated only when full details are fetched
+    };
+  }
+
+  private estimateExperienceFromAccount(user: any): number {
+    // Estimate experience based on account age and activity
+    const accountAge =
+      new Date().getFullYear() - new Date(user.created_at).getFullYear();
+    const repoCount = user.public_repos || 0;
+
+    // Base experience on account age, capped at reasonable limits
+    let experience = Math.min(accountAge, 15); // Max 15 years
+
+    // Adjust based on activity level
+    if (repoCount > 50) experience += 1;
+    if (repoCount > 100) experience += 1;
+    if (user.followers > 100) experience += 1;
+
+    return Math.max(1, Math.min(experience, 20)); // Between 1-20 years
+  }
+
+  private generateBasicHighlights(user: any): string[] {
+    const highlights: string[] = [];
+
+    if (user.public_repos > 0) {
+      highlights.push(`${user.public_repos} public repositories`);
+    }
+
+    if (user.followers > 0) {
+      highlights.push(`${user.followers} followers on GitHub`);
+    }
+
+    if (user.bio) {
+      highlights.push("Has detailed profile bio");
+    }
+
+    return highlights.slice(0, 3); // Limit to 3 highlights
   }
 
   private inferTitleFromBio(bio: string): string {
@@ -345,5 +426,65 @@ export class GitHubService {
     enhancedQuery += " followers:>5"; // Reduced from 10
 
     return enhancedQuery;
+  } // Get detailed user profile by GitHub username - called when user clicks on candidate card
+  async getUserById(username: string): Promise<TalentProfile | null> {
+    try {
+      // Fetch user details and repositories in parallel
+      const [userResponse, reposResponse] = await Promise.all([
+        this.octokit.rest.users.getByUsername({ username }),
+        this.octokit.rest.repos.listForUser({
+          username,
+          per_page: 30,
+          sort: "updated",
+          type: "owner",
+        }),
+      ]);
+
+      const user = userResponse.data;
+      const repos = reposResponse.data;
+
+      // Create detailed profile with repository data
+      const bio = user.bio || "";
+      const title = this.inferTitleFromBio(bio);
+      const skills = this.extractSkillsFromBio(bio);
+      const aiExperience = this.extractAIExperience(bio, repos);
+      const experience = this.estimateExperienceFromAccount(user);
+      const highlights = this.generateHighlights(user, repos);
+      const matchScore = this.calculateMatchScore(user, repos);
+      const screeningScore = this.calculateScreeningScore(user, repos);
+      const screeningNotes = this.generateScreeningNotes(user, repos);
+      return {
+        id: user.login, // Use GitHub username as ID for consistency
+        name: user.name || user.login, // Use display name if available, fallback to username
+        title,
+        experience,
+        skills,
+        location: user.location || "Not specified",
+        availability: "open" as const,
+        source: "github" as const,
+        matchScore,
+        highlights,
+        avatar: user.avatar_url,
+        summary:
+          bio ||
+          `GitHub developer with ${user.public_repos} public repositories`,
+        aiExperience,
+        employmentPreferences: {
+          type: "full-time" as const,
+          remote: true,
+          relocation: false,
+        },
+        seniority: this.inferSeniority(experience, repos),
+        screeningStatus: {
+          automated: true,
+          score: screeningScore,
+          notes: screeningNotes,
+          recommended: screeningScore > 70,
+        },
+      };
+    } catch (error) {
+      console.error("Error fetching GitHub user details:", error);
+      return null;
+    }
   }
 }

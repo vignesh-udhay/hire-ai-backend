@@ -1,17 +1,17 @@
 export interface TalentSearchQuery {
   query: string;
   filters?: {
-    experience?: number;
+    experience?: {
+      min: number;
+      max: number;
+    };
     skills?: string[];
-    location?: string;
-    availability?: "immediate" | "notice" | "open";
+    location?: {
+      city: string;
+      remote: boolean;
+    };
     employmentType?: "full-time" | "contract" | "part-time";
     seniority?: "junior" | "mid" | "senior" | "lead" | "principal";
-    aiExperience?: {
-      frameworks?: string[];
-      domains?: string[];
-      years?: number;
-    };
   };
   limit?: number;
   offset?: number;
@@ -25,39 +25,68 @@ export interface AIProject {
   year: number;
 }
 
+export interface AIExperience {
+  years: number;
+  frameworks: string[];
+  domains: string[];
+  projects: AIProject[];
+}
+
+export interface EmploymentPreferences {
+  type: "full-time" | "contract" | "part-time";
+  remote: boolean;
+  relocation: boolean;
+}
+
+export interface ScreeningStatus {
+  automated: boolean;
+  score: number;
+  notes: string[];
+  recommended: boolean;
+}
+
+// Internal profile type used in services
 export interface TalentProfile {
   id: string;
   name: string;
   title: string;
-  experience: number;
+  experience: number; // Stored as number internally
   skills: string[];
   location: string;
   availability: "immediate" | "notice" | "open";
   source: "linkedin" | "github" | "portfolio" | "resume";
   matchScore: number;
   highlights: string[];
-  aiExperience: {
-    years: number;
-    frameworks: string[];
-    domains: string[];
-    projects: AIProject[];
-  };
-  employmentPreferences: {
-    type: "full-time" | "contract" | "part-time";
-    remote: boolean;
-    relocation: boolean;
-  };
-  seniority: "junior" | "mid" | "senior" | "lead" | "principal";
-  screeningStatus: {
-    automated: boolean;
-    score: number;
-    notes: string[];
-    recommended: boolean;
-  };
+  avatar: string;
+  summary: string;
+  aiExperience?: AIExperience;
+  employmentPreferences?: EmploymentPreferences;
+  seniority?: "junior" | "mid" | "senior" | "lead" | "principal";
+  screeningStatus?: ScreeningStatus;
+}
+
+// Response type for API endpoints
+export interface TalentProfileResponse {
+  id: string;
+  name: string;
+  title: string;
+  experience: string; // Formatted as string for display
+  skills: string[];
+  location: string;
+  availability: "immediate" | "notice" | "open";
+  source: "linkedin" | "github" | "portfolio" | "resume";
+  matchScore: number;
+  highlights: string[];
+  avatar: string;
+  summary: string;
+  aiExperience?: AIExperience;
+  employmentPreferences?: EmploymentPreferences;
+  seniority?: "junior" | "mid" | "senior" | "lead" | "principal";
+  screeningStatus?: ScreeningStatus;
 }
 
 export interface TalentSearchResponse {
-  results: TalentProfile[];
+  results: TalentProfileResponse[];
   total: number;
   page: number;
   limit: number;
