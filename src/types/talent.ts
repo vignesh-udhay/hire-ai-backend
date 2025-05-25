@@ -1,18 +1,5 @@
 export interface TalentSearchQuery {
   query: string;
-  filters?: {
-    experience?: {
-      min: number;
-      max: number;
-    };
-    skills?: string[];
-    location?: {
-      city: string;
-      remote: boolean;
-    };
-    employmentType?: "full-time" | "contract" | "part-time";
-    seniority?: "junior" | "mid" | "senior" | "lead" | "principal";
-  };
   limit?: number;
   offset?: number;
 }

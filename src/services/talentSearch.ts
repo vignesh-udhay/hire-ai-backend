@@ -162,7 +162,6 @@ export class TalentSearchService {
       recommended: score > 70,
     };
   }
-
   async searchTalent(query: SearchQuery): Promise<TalentSearchResponse> {
     try {
       // Process natural language query and GitHub search in parallel for better performance
@@ -182,19 +181,22 @@ export class TalentSearchService {
         derivedFilters,
       } = nlpResult;
 
-      // Apply optimized filtering and scoring
-      const filteredResults = this.filterAndScoreProfilesOptimized(
-        githubResponse.profiles,
-        extractedSkills,
-        extractedRequirements,
-        derivedFilters
-      );
+      // Apply optimized scoring without additional filtering
+      const scoredResults = githubResponse.profiles.map((profile) => ({
+        ...profile,
+        matchScore: this.calculateMatchScoreOptimized(
+          profile,
+          extractedSkills,
+          extractedRequirements,
+          derivedFilters
+        ),
+      }));
 
       // Sort results by match score
-      filteredResults.sort((a, b) => b.matchScore - a.matchScore);
+      scoredResults.sort((a, b) => b.matchScore - a.matchScore);
 
       // Transform profiles to response format
-      const transformedResults: TalentProfileResponse[] = filteredResults.map(
+      const transformedResults: TalentProfileResponse[] = scoredResults.map(
         (profile) => ({
           ...profile,
           experience: `${profile.experience} years`,
@@ -203,7 +205,7 @@ export class TalentSearchService {
 
       // Calculate distributions efficiently
       const matchDistribution =
-        this.calculateDistributionsOptimized(filteredResults);
+        this.calculateDistributionsOptimized(scoredResults);
 
       return {
         results: transformedResults,
@@ -237,77 +239,6 @@ export class TalentSearchService {
       }
     });
     return distribution;
-  }
-
-  // Optimized filtering and scoring method
-  private filterAndScoreProfilesOptimized(
-    profiles: TalentProfile[],
-    extractedSkills: string[],
-    extractedRequirements: string[],
-    derivedFilters: any
-  ): TalentProfile[] {
-    // Pre-compile filter conditions for better performance
-    const filterConditions = {
-      hasAIDomainsFilter: derivedFilters.aiExperience?.domains?.length > 0,
-      hasAIFrameworksFilter:
-        derivedFilters.aiExperience?.frameworks?.length > 0,
-      hasEmploymentTypeFilter: !!derivedFilters.employmentType,
-      hasAvailabilityFilter: !!derivedFilters.availability,
-      aiDomains: derivedFilters.aiExperience?.domains || [],
-      aiFrameworks: derivedFilters.aiExperience?.frameworks || [],
-      employmentType: derivedFilters.employmentType,
-      availability: derivedFilters.availability,
-    };
-
-    return profiles
-      .map((profile) => ({
-        ...profile,
-        matchScore: this.calculateMatchScoreOptimized(
-          profile,
-          extractedSkills,
-          extractedRequirements,
-          derivedFilters
-        ),
-      }))
-      .filter((profile) => {
-        // Apply pre-compiled filter conditions
-        if (
-          filterConditions.hasAIDomainsFilter &&
-          profile.aiExperience &&
-          !filterConditions.aiDomains.every((domain: string) =>
-            profile.aiExperience!.domains.includes(domain)
-          )
-        ) {
-          return false;
-        }
-
-        if (
-          filterConditions.hasAIFrameworksFilter &&
-          profile.aiExperience &&
-          !filterConditions.aiFrameworks.every((framework: string) =>
-            profile.aiExperience!.frameworks.includes(framework)
-          )
-        ) {
-          return false;
-        }
-
-        if (
-          filterConditions.hasEmploymentTypeFilter &&
-          profile.employmentPreferences &&
-          profile.employmentPreferences.type !== filterConditions.employmentType
-        ) {
-          return false;
-        }
-
-        if (
-          filterConditions.hasAvailabilityFilter &&
-          profile.availability !== filterConditions.availability
-        ) {
-          return false;
-        }
-
-        return true;
-      });
   }
 
   // Optimized match score calculation

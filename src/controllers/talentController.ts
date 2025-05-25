@@ -8,7 +8,6 @@ export class TalentController {
   constructor() {
     this.talentSearchService = new TalentSearchService();
   }
-
   searchTalent = async (req: Request, res: Response): Promise<void> => {
     try {
       // Validate required fields
@@ -23,27 +22,6 @@ export class TalentController {
       // Validate and sanitize input
       const query: TalentSearchQuery = {
         query: req.body.query.trim(),
-        filters: req.body.filters
-          ? {
-              experience: req.body.filters.experience
-                ? {
-                    min: Number(req.body.filters.experience.min) || 0,
-                    max: Number(req.body.filters.experience.max) || 0,
-                  }
-                : undefined,
-              skills: Array.isArray(req.body.filters.skills)
-                ? req.body.filters.skills
-                : undefined,
-              location: req.body.filters.location
-                ? {
-                    city: req.body.filters.location.city?.trim() || "",
-                    remote: Boolean(req.body.filters.location.remote),
-                  }
-                : undefined,
-              employmentType: req.body.filters.employmentType,
-              seniority: req.body.filters.seniority,
-            }
-          : undefined,
         limit: req.body.limit ? Number(req.body.limit) : 10,
         offset: req.body.offset ? Number(req.body.offset) : 0,
       };
