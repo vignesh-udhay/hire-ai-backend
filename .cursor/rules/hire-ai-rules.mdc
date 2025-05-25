@@ -1,0 +1,9 @@
+---
+description: what package manager to use when installing or deleting new packages. Initializing apps.
+globs: 
+alwaysApply: false
+---
+Always use pnpm for installing and removing new packages, initializing apps.
+
+
+use typescript
