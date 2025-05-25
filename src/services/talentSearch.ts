@@ -169,8 +169,8 @@ export class TalentSearchService {
         this.processNaturalLanguageQuery(query.query),
         this.githubService.searchUsers(
           query.query,
-          Math.floor((query.offset || 0) / (query.limit || 10)) + 1,
-          query.limit || 10
+          Math.floor((query.offset || 0) / (query.limit || 12)) + 1,
+          query.limit || 12
         ),
       ]);
 
@@ -206,12 +206,11 @@ export class TalentSearchService {
       // Calculate distributions efficiently
       const matchDistribution =
         this.calculateDistributionsOptimized(scoredResults);
-
       return {
         results: transformedResults,
         total: githubResponse.total,
-        page: Math.floor((query.offset ?? 0) / (query.limit ?? 10)) + 1,
-        limit: query.limit ?? 10,
+        page: Math.floor((query.offset ?? 0) / (query.limit ?? 12)) + 1,
+        limit: query.limit ?? 12,
         searchMetadata: {
           queryUnderstanding: {
             extractedSkills,

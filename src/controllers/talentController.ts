@@ -17,12 +17,10 @@ export class TalentController {
           details: "The 'query' field is required",
         });
         return;
-      }
-
-      // Validate and sanitize input
+      }      // Validate and sanitize input
       const query: TalentSearchQuery = {
         query: req.body.query.trim(),
-        limit: req.body.limit ? Number(req.body.limit) : 10,
+        limit: req.body.limit ? Number(req.body.limit) : 12,
         offset: req.body.offset ? Number(req.body.offset) : 0,
       };
 

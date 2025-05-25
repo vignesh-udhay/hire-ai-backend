@@ -15,20 +15,22 @@ export class GitHubService {
 
     // Initialize Groq service
     this.groqService = new GroqService();
-  }
-  async searchUsers(
+  }  async searchUsers(
     query: string,
     page: number = 1,
-    perPage: number = 10
+    perPage: number = 12
   ): Promise<{ profiles: TalentProfile[]; total: number }> {
     try {
       // Parse the query using Groq service
       const parsedQuery = await this.groqService.parseQuery(query);
       const enhancedQuery = this.buildEnhancedSearchQuery(parsedQuery);
+      
+      // Explicitly filter for user type (not organizations)
+      const searchQueryWithTypeFilter = `${enhancedQuery} type:user`;
 
       // Search for users based on the enhanced query with pagination
       const searchResponse = await this.octokit.rest.search.users({
-        q: enhancedQuery,
+        q: searchQueryWithTypeFilter,
         per_page: perPage,
         page: page,
       });
@@ -46,9 +48,13 @@ export class GitHubService {
       console.error("Error searching GitHub users:", error);
       throw error;
     }
-  }
-  private createLightweightProfile(user: any): TalentProfile {
+  }  private createLightweightProfile(user: any): TalentProfile {
     // Create a lightweight profile with minimal data from search results
+    // Skip organization accounts
+    if (user.type && user.type.toLowerCase() === 'organization') {
+      throw new Error('Organization accounts should not be processed as talent profiles');
+    }
+    
     const bio = user.bio || "";
     const title = this.inferTitleFromBio(bio);
     const skills = this.extractSkillsFromBio(bio);
