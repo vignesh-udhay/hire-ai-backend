@@ -124,8 +124,11 @@ export class GroqService {
         throw new Error("No response from Groq");
       }
 
+      // Strip markdown code blocks if present (Groq sometimes wraps JSON in ```json...```)
+      const cleanedResponse = this.stripMarkdownCodeBlocks(response);
+
       // Parse the JSON response
-      const parsedResponse = JSON.parse(response);
+      const parsedResponse = JSON.parse(cleanedResponse);
       return parsedResponse;
     } catch (error) {
       console.error("Error parsing talent query with Groq:", error);
@@ -137,5 +140,52 @@ export class GroqService {
         derivedFilters: {},
       };
     }
+  }
+
+  async parseResumeContent(prompt: string): Promise<string> {
+    try {
+      const completion = await this.groq.chat.completions.create({
+        messages: [
+          {
+            role: "system",
+            content: `You are an expert resume parser. Analyze resume text and extract structured information accurately. Always return valid JSON without any markdown formatting or explanations.`,
+          },
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+        model: "llama-3.3-70b-versatile",
+        temperature: 0.1,
+        max_tokens: 2000,
+      });
+
+      const response = completion.choices[0]?.message?.content;
+      if (!response) {
+        throw new Error("No response from Groq");
+      }
+
+      return response;
+    } catch (error) {
+      console.error("Error parsing resume content with Groq:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Strip markdown code blocks from AI response
+   * Handles cases where Groq returns JSON wrapped in ```json...```
+   */
+  private stripMarkdownCodeBlocks(response: string): string {
+    // Remove markdown code blocks (```json...``` or ```...```)
+    const codeBlockPattern = /^```(?:json)?\s*\n?([\s\S]*?)\n?```$/;
+    const match = response.trim().match(codeBlockPattern);
+    
+    if (match) {
+      return match[1].trim();
+    }
+    
+    // If no code blocks found, return the original response
+    return response.trim();
   }
 }
