@@ -99,11 +99,34 @@ export class SkillMatchingService {
     ],
   };
   /**
-   * Calculate skill match percentage between resume and job requirements
+   * Extract skills from a job description
+   */
+  static extractSkillsFromJobDescription(jobDescription: string): string[] {
+    // Convert to lowercase for better matching
+    const description = jobDescription.toLowerCase();
+
+    // Initialize an array to store found skills
+    const foundSkills: string[] = [];
+
+    // Check each category for skills
+    Object.values(this.skillCategories).forEach((categorySkills) => {
+      categorySkills.forEach((skill) => {
+        if (description.includes(skill.toLowerCase())) {
+          foundSkills.push(skill);
+        }
+      });
+    });
+
+    // Remove duplicates and return
+    return [...new Set(foundSkills)];
+  }
+
+  /**
+   * Calculate skill match percentage between resume and job description
    */
   static calculateSkillMatch(
     resumeSkills: ParsedResume["skills"],
-    requiredSkills: string[]
+    jobDescription: string
   ): {
     overallMatch: number;
     matchedSkills: Array<{
@@ -130,6 +153,9 @@ export class SkillMatchingService {
     matchPercentage: number;
     categoryBreakdown: Record<string, { matched: number; total: number }>;
   } {
+    // Extract required skills from job description
+    const requiredSkills = this.extractSkillsFromJobDescription(jobDescription);
+
     const allResumeSkills = [
       ...resumeSkills.technical,
       ...resumeSkills.frameworks,
@@ -138,10 +164,6 @@ export class SkillMatchingService {
       ...resumeSkills.databases,
       ...resumeSkills.cloud,
     ].map((skill) => skill.toLowerCase());
-
-    const requiredSkillsLower = requiredSkills.map((skill) =>
-      skill.toLowerCase()
-    );
 
     const matchedSkills: Array<{
       skill: string;
@@ -158,9 +180,8 @@ export class SkillMatchingService {
     }> = [];
 
     // Analyze each required skill
-    requiredSkillsLower.forEach((required) => {
-      const originalRequired =
-        requiredSkills[requiredSkillsLower.indexOf(required)];
+    requiredSkills.forEach((required) => {
+      const originalRequired = requiredSkills[requiredSkills.indexOf(required)];
       const matchedResumeSkill = allResumeSkills.find(
         (resume) => resume.includes(required) || required.includes(resume)
       );
@@ -203,7 +224,7 @@ export class SkillMatchingService {
     // Category breakdown
     const categoryBreakdown = this.getCategoryBreakdown(
       matchedSkills.map((s) => s.skill.toLowerCase()),
-      requiredSkillsLower
+      requiredSkills
     );
 
     // Analyze strengths and areas for improvement

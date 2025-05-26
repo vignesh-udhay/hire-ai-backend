@@ -163,7 +163,7 @@ export class ResumeController {
   };
 
   /**
-   * Analyze skill match between uploaded resume file and job requirements
+   * Analyze skill match between uploaded resume file and job description
    * Used by: SkillMatcher.tsx
    */
   analyzeSkillMatchFromFile = async (
@@ -179,20 +179,20 @@ export class ResumeController {
         return;
       }
 
-      const { requiredSkills } = req.body;
+      const { jobDescription } = req.body;
 
-      if (!requiredSkills) {
+      if (!jobDescription) {
         res.status(400).json({
           success: false,
-          error: "requiredSkills is required",
+          error: "jobDescription is required",
         });
         return;
       }
 
-      if (!Array.isArray(requiredSkills)) {
+      if (typeof jobDescription !== "string") {
         res.status(400).json({
           success: false,
-          error: "requiredSkills must be an array of strings",
+          error: "jobDescription must be a string",
         });
         return;
       }
@@ -230,7 +230,7 @@ export class ResumeController {
 
       const matchAnalysis = SkillMatchingService.calculateSkillMatch(
         resumeSkills,
-        requiredSkills
+        jobDescription
       );
 
       const suggestions =
@@ -265,8 +265,6 @@ export class ResumeController {
    * Used by: BatchProcessor.tsx
    */
   batchAnalyzeResumes = async (req: Request, res: Response): Promise<void> => {
-    const startTime = Date.now();
-
     try {
       if (!req.files || !Array.isArray(req.files)) {
         res.status(400).json({
@@ -276,95 +274,58 @@ export class ResumeController {
         return;
       }
 
-      const files = req.files as Express.Multer.File[];
+      const { jobDescription } = req.body;
 
-      if (files.length > 10) {
+      if (!jobDescription) {
         res.status(400).json({
           success: false,
-          error: "Maximum 10 files allowed per batch",
+          error: "jobDescription is required",
         });
         return;
       }
 
-      // Optional required skills for batch matching
-      const { requiredSkills } = req.body;
-      const shouldAnalyzeSkillMatch =
-        requiredSkills &&
-        Array.isArray(requiredSkills) &&
-        requiredSkills.length > 0;
+      if (typeof jobDescription !== "string") {
+        res.status(400).json({
+          success: false,
+          error: "jobDescription must be a string",
+        });
+        return;
+      }
 
-      const results = await Promise.allSettled(
-        files.map(async (file, index) => {
-          const fileStartTime = Date.now();
-
+      const results = await Promise.all(
+        req.files.map(async (file) => {
           try {
-            // 1. Parse the resume
             const parsedResume = await this.resumeParserService.parseResume(
               file
             );
-
-            // 2. Extract enhanced skills
-            const enhancedSkills = await this.resumeParserService.extractSkills(
+            const skillsData = await this.resumeParserService.extractSkills(
               parsedResume.extractedText
             );
 
-            // 3. Combine skills
-            const combinedSkills = {
+            const resumeSkills = {
               ...parsedResume.skills,
-              ...enhancedSkills,
+              ...skillsData,
             };
 
-            // 4. Generate talent profile
-            const talentProfile = SkillMatchingService.convertToTalentProfile({
-              ...parsedResume,
-              skills: combinedSkills,
-            });
-
-            // 5. Optional skill matching
-            let skillMatchAnalysis = null;
-            let skillSuggestions = null;
-
-            if (shouldAnalyzeSkillMatch) {
-              skillMatchAnalysis = SkillMatchingService.calculateSkillMatch(
-                combinedSkills,
-                requiredSkills
-              );
-              skillSuggestions =
-                SkillMatchingService.generateSkillSuggestions(combinedSkills);
-            }
-
-            const fileProcessingTime = Date.now() - fileStartTime;
+            const matchAnalysis = SkillMatchingService.calculateSkillMatch(
+              resumeSkills,
+              jobDescription
+            );
 
             return {
               fileName: file.originalname,
-              fileSize: file.size,
               fileType: file.mimetype,
               success: true,
-              processingTime: fileProcessingTime,
               data: {
-                parsedResume: {
-                  ...parsedResume,
-                  skills: combinedSkills,
-                },
-                skillsAnalysis: enhancedSkills,
-                talentProfile,
-                ...(skillMatchAnalysis && {
-                  skillMatch: {
-                    analysis: skillMatchAnalysis,
-                    suggestions: skillSuggestions,
-                  },
-                }),
+                matchAnalysis,
+                resumeSkills,
               },
             };
           } catch (error) {
-            const fileProcessingTime = Date.now() - fileStartTime;
-
             return {
               fileName: file.originalname,
-              fileSize: file.size,
               fileType: file.mimetype,
               success: false,
-              processingTime: fileProcessingTime,
               error:
                 error instanceof Error
                   ? error.message
@@ -374,51 +335,19 @@ export class ResumeController {
         })
       );
 
-      const processedResults = results.map((result, index) => {
-        if (result.status === "fulfilled") {
-          return result.value;
-        } else {
-          return {
-            fileName: files[index].originalname,
-            fileSize: files[index].size,
-            fileType: files[index].mimetype,
-            success: false,
-            processingTime: 0,
-            error: result.reason?.message || "Unknown error",
-          };
-        }
-      });
-
-      const successCount = processedResults.filter((r) => r.success).length;
-      const totalProcessingTime = Date.now() - startTime;
-
       res.json({
         success: true,
-        data: {
-          results: processedResults,
-          summary: {
-            total: files.length,
-            successful: successCount,
-            failed: files.length - successCount,
-            totalProcessingTime,
-            averageProcessingTime: Math.round(
-              totalProcessingTime / files.length
-            ),
-            ...(shouldAnalyzeSkillMatch && { requiredSkills }),
-          },
-        },
-        timestamp: new Date().toISOString(),
+        data: results,
       });
     } catch (error) {
       console.error("Error in batch resume analysis:", error);
 
-      const totalProcessingTime = Date.now() - startTime;
-
       res.status(500).json({
         success: false,
         error:
-          error instanceof Error ? error.message : "Failed to process batch",
-        processingTime: totalProcessingTime,
+          error instanceof Error
+            ? error.message
+            : "Failed to analyze resumes in batch",
       });
     }
   };
