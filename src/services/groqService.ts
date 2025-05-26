@@ -180,12 +180,105 @@ export class GroqService {
     // Remove markdown code blocks (```json...``` or ```...```)
     const codeBlockPattern = /^```(?:json)?\s*\n?([\s\S]*?)\n?```$/;
     const match = response.trim().match(codeBlockPattern);
-    
+
     if (match) {
       return match[1].trim();
     }
-    
+
     // If no code blocks found, return the original response
     return response.trim();
+  }
+
+  async generateOutreachEmail(
+    candidate: {
+      name: string;
+      role: string;
+      company: string;
+      skills: string[];
+      summary: string;
+    },
+    roleTitle: string,
+    companyName: string
+  ): Promise<{ subject: string; message: string }> {
+    try {
+      console.log("Starting email generation with Groq...");
+
+      const prompt = `Generate a personalized outreach email for a candidate with the following profile:
+Name: ${candidate.name}
+Current Role: ${candidate.role} at ${candidate.company}
+Skills: ${candidate.skills.join(", ")}
+Summary: ${candidate.summary}
+
+The email should be for a ${roleTitle} position at ${companyName}.
+
+Generate both a subject line and the email body. The email should:
+1. Be personalized based on their experience and skills
+2. Highlight relevant aspects of their background
+3. Be concise but engaging
+4. Include a clear call to action
+5. Be professional but conversational
+
+Return the response in the following JSON format:
+{
+  "subject": "string",
+  "message": "string"
+}
+
+Do not include any markdown formatting or explanations.`;
+
+      console.log("Sending request to Groq...");
+      const completion = await this.groq.chat.completions.create({
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are an expert recruiter who writes compelling, personalized outreach emails. Always return valid JSON without any markdown formatting or explanations.",
+          },
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+        model: "llama-3.3-70b-versatile",
+        temperature: 0.7,
+        max_tokens: 1000,
+      });
+
+      console.log("Received response from Groq");
+      const response = completion.choices[0]?.message?.content;
+      if (!response) {
+        throw new Error("No response content from Groq");
+      }
+
+      console.log("Raw response:", response);
+
+      // Strip markdown code blocks if present
+      const cleanedResponse = this.stripMarkdownCodeBlocks(response);
+      console.log("Cleaned response:", cleanedResponse);
+
+      try {
+        const parsedResponse = JSON.parse(cleanedResponse);
+        if (!parsedResponse.subject || !parsedResponse.message) {
+          throw new Error(
+            "Response missing required fields (subject or message)"
+          );
+        }
+        return parsedResponse;
+      } catch (error) {
+        console.error("Error parsing JSON response:", error);
+        console.error("Failed to parse response:", cleanedResponse);
+        throw new Error(
+          `Failed to parse generated email content: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`
+        );
+      }
+    } catch (error) {
+      console.error("Error in generateOutreachEmail:", error);
+      if (error instanceof Error) {
+        throw new Error(`Failed to generate email: ${error.message}`);
+      }
+      throw error;
+    }
   }
 }
