@@ -1,12 +1,15 @@
 import { Request, Response } from "express";
 import { TalentSearchService } from "../services/talentSearch";
+import { TalentInsightsService } from "../services/talentInsights";
 import { TalentSearchQuery } from "../types/talent";
 
 export class TalentController {
   private talentSearchService: TalentSearchService;
+  private talentInsightsService: TalentInsightsService;
 
   constructor() {
     this.talentSearchService = new TalentSearchService();
+    this.talentInsightsService = new TalentInsightsService();
   }
   searchTalent = async (req: Request, res: Response): Promise<void> => {
     try {
@@ -105,6 +108,22 @@ export class TalentController {
       console.error("Error fetching talent details:", error);
       res.status(500).json({
         error: "An error occurred while fetching talent details",
+        details: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  };
+
+  /**
+   * Get insights about the talent pool
+   */
+  getTalentInsights = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const insights = await this.talentInsightsService.generateInsights();
+      res.json(insights);
+    } catch (error) {
+      console.error("Error generating talent insights:", error);
+      res.status(500).json({
+        error: "Failed to generate talent insights",
         details: error instanceof Error ? error.message : "Unknown error",
       });
     }
