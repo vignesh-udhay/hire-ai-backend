@@ -97,3 +97,33 @@ export interface SkillExtractionResult {
   confidence: number;
   suggestions: string[];
 }
+
+export interface CandidateVerificationRequest {
+  resumeText: string;
+  jobDescription: string;
+}
+
+export interface CandidateVerificationResponse {
+  success: boolean;
+  data?: {
+    verificationSummary: string;
+    flaggedItems: string[];
+  };
+  error?: string;
+}
+
+export interface ScreeningQARequest {
+  resumeText: string;
+  jobDescription: string;
+}
+
+export interface ScreeningQAResponse {
+  success: boolean;
+  data?: {
+    questions: Array<{
+      question: string;
+      expectedAnswer: string;
+    }>;
+  };
+  error?: string;
+}

@@ -281,4 +281,222 @@ Do not include any markdown formatting or explanations.`;
       throw error;
     }
   }
+
+  /**
+   * Verify candidate information using AI
+   */
+  async verifyCandidateInfo(
+    resumeText: string,
+    jobDescription: string
+  ): Promise<{
+    verificationSummary: string;
+    flaggedItems: string[];
+  }> {
+    try {
+      const completion = await this.groq.chat.completions.create({
+        messages: [
+          {
+            role: "system",
+            content: `You are an expert HR analyst specializing in candidate verification. Your task is to analyze a resume against a job description and identify potential inconsistencies, exaggerations, or red flags.
+
+            Analyze the following aspects:
+            1. Skills claims vs. experience level
+            2. Job progression and timeline consistency
+            3. Educational background alignment
+            4. Technology combinations that make sense
+            5. Experience duration vs. claimed expertise level
+            6. Gap analysis between claimed skills and job descriptions
+
+            Provide your response in JSON format:
+            {
+              "verificationSummary": "A comprehensive summary of your analysis (2-3 sentences)",
+              "flaggedItems": ["Array of specific concerns or inconsistencies found"]
+            }
+
+            If no major concerns are found, state that in the summary and provide an empty array for flaggedItems.`,
+          },
+          {
+            role: "user",
+            content: `Resume/Skills: ${resumeText}
+
+Job Description: ${jobDescription}
+
+Please analyze this candidate's profile and provide verification insights.`,
+          },
+        ],
+        model: "llama-3.3-70b-versatile",
+        temperature: 0.3,
+        max_tokens: 1500,
+      });
+
+      const responseText = completion.choices[0]?.message?.content || "{}";
+      console.log("Raw AI response:", responseText);
+      console.log("Response length:", responseText.length);
+
+      try {
+        const parsed = JSON.parse(responseText);
+        return {
+          verificationSummary:
+            parsed.verificationSummary ||
+            "Analysis completed with no specific concerns identified.",
+          flaggedItems: parsed.flaggedItems || [],
+        };
+      } catch (parseError) {
+        console.warn(
+          "JSON parsing failed, attempting to extract data:",
+          parseError
+        );
+
+        // Try to extract JSON from potentially truncated response
+        try {
+          // Strip markdown code blocks if present
+          const cleanedResponse = this.stripMarkdownCodeBlocks(responseText);
+
+          // Try to find and parse incomplete JSON
+          let jsonStartIndex = cleanedResponse.indexOf(
+            '{"verificationSummary"'
+          );
+          if (jsonStartIndex === -1) {
+            jsonStartIndex = cleanedResponse.indexOf('"verificationSummary"');
+            if (jsonStartIndex !== -1) {
+              jsonStartIndex = cleanedResponse.lastIndexOf("{", jsonStartIndex);
+            }
+          }
+
+          if (jsonStartIndex !== -1) {
+            let jsonString = cleanedResponse.substring(jsonStartIndex);
+
+            // Try to complete truncated JSON
+            if (!jsonString.endsWith("}") && !jsonString.endsWith("]")) {
+              const openBraces = (jsonString.match(/\{/g) || []).length;
+              const closeBraces = (jsonString.match(/\}/g) || []).length;
+              const openBrackets = (jsonString.match(/\[/g) || []).length;
+              const closeBrackets = (jsonString.match(/\]/g) || []).length;
+
+              // Add missing closing brackets/braces
+              for (let i = 0; i < openBrackets - closeBrackets; i++) {
+                jsonString += "]";
+              }
+              for (let i = 0; i < openBraces - closeBraces; i++) {
+                jsonString += "}";
+              }
+            }
+
+            const reconstructedParsed = JSON.parse(jsonString);
+            return {
+              verificationSummary:
+                reconstructedParsed.verificationSummary ||
+                "Analysis completed with no specific concerns identified.",
+              flaggedItems: reconstructedParsed.flaggedItems || [],
+            };
+          }
+
+          // Fallback to regex extraction
+          const summaryMatch = responseText.match(
+            /"verificationSummary":\s*"([^"]*)/
+          );
+          const flaggedMatch = responseText.match(
+            /"flaggedItems":\s*\[\s*"([^"]*)/
+          );
+
+          return {
+            verificationSummary: summaryMatch
+              ? summaryMatch[1]
+              : "Analysis completed with no specific concerns identified.",
+            flaggedItems: flaggedMatch ? [flaggedMatch[1]] : [],
+          };
+        } catch (reconstructionError) {
+          console.warn("Failed to reconstruct JSON:", reconstructionError);
+
+          // Last resort: extract readable text from the response
+          const cleanText = responseText
+            .replace(/[{}"\[\]]/g, "")
+            .replace(/verificationSummary:|flaggedItems:/g, "")
+            .trim();
+
+          return {
+            verificationSummary:
+              cleanText.length > 0
+                ? cleanText.substring(0, 500)
+                : "Analysis completed with no specific concerns identified.",
+            flaggedItems: [],
+          };
+        }
+      }
+    } catch (error) {
+      console.error("Error in candidate verification:", error);
+      throw new Error("Failed to verify candidate information");
+    }
+  }
+
+  /**
+   * Generate screening questions and answers using AI
+   */
+  async generateScreeningQA(
+    resumeText: string,
+    jobDescription: string
+  ): Promise<{
+    questions: Array<{
+      question: string;
+      expectedAnswer: string;
+    }>;
+  }> {
+    try {
+      const completion = await this.groq.chat.completions.create({
+        messages: [
+          {
+            role: "system",
+            content: `You are an expert technical interviewer. Generate 5 relevant screening questions based on the candidate's resume and the job requirements.
+
+            Guidelines:
+            1. Create questions that assess both technical knowledge and experience
+            2. Include questions about specific technologies mentioned in both resume and job description
+            3. Ask about problem-solving scenarios relevant to the role
+            4. Include at least one behavioral question related to the candidate's experience
+            5. Make questions challenging but fair based on the candidate's background
+
+            For each question, provide an expected answer that demonstrates competency.
+
+            Return your response in JSON format:
+            {
+              "questions": [
+                {
+                  "question": "Your interview question here",
+                  "expectedAnswer": "What a competent candidate should cover in their answer"
+                }
+              ]
+            }`,
+          },
+          {
+            role: "user",
+            content: `Candidate Resume/Skills: ${resumeText}
+
+Job Description: ${jobDescription}
+
+Please generate 5 screening questions with expected answers for this candidate.`,
+          },
+        ],
+        model: "llama-3.3-70b-versatile",
+        temperature: 0.4,
+        max_tokens: 2000,
+      });
+
+      const responseText = completion.choices[0]?.message?.content || "{}";
+
+      try {
+        const parsed = JSON.parse(responseText);
+        return {
+          questions: parsed.questions || [],
+        };
+      } catch (parseError) {
+        // Fallback if JSON parsing fails
+        return {
+          questions: [],
+        };
+      }
+    } catch (error) {
+      console.error("Error generating screening Q&A:", error);
+      throw new Error("Failed to generate screening questions");
+    }
+  }
 }

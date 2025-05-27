@@ -1,13 +1,16 @@
 import { Request, Response } from "express";
 import { ResumeParserService } from "../services/resumeParserService";
 import { SkillMatchingService } from "../services/skillMatchingService";
+import { GroqService } from "../services/groqService";
 import { ResumeParseResponse } from "../types/resume";
 
 export class ResumeController {
   private resumeParserService: ResumeParserService;
+  private groqService: GroqService;
 
   constructor() {
     this.resumeParserService = new ResumeParserService();
+    this.groqService = new GroqService();
   }
 
   /**
@@ -348,6 +351,78 @@ export class ResumeController {
           error instanceof Error
             ? error.message
             : "Failed to analyze resumes in batch",
+      });
+    }
+  };
+
+  /**
+   * Verify candidate information using AI
+   */
+  verifyCandidateInfo = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { resumeText, jobDescription } = req.body;
+
+      if (!resumeText || !jobDescription) {
+        res.status(400).json({
+          success: false,
+          error: "Both resumeText and jobDescription are required",
+        });
+        return;
+      }
+
+      const verificationResult = await this.groqService.verifyCandidateInfo(
+        resumeText,
+        jobDescription
+      );
+
+      res.json({
+        success: true,
+        data: verificationResult,
+      });
+    } catch (error) {
+      console.error("Error verifying candidate:", error);
+      res.status(500).json({
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to verify candidate information",
+      });
+    }
+  };
+
+  /**
+   * Generate screening Q&A using AI
+   */
+  generateScreeningQA = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { resumeText, jobDescription } = req.body;
+
+      if (!resumeText || !jobDescription) {
+        res.status(400).json({
+          success: false,
+          error: "Both resumeText and jobDescription are required",
+        });
+        return;
+      }
+
+      const screeningResult = await this.groqService.generateScreeningQA(
+        resumeText,
+        jobDescription
+      );
+
+      res.json({
+        success: true,
+        data: screeningResult,
+      });
+    } catch (error) {
+      console.error("Error generating screening Q&A:", error);
+      res.status(500).json({
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to generate screening Q&A",
       });
     }
   };

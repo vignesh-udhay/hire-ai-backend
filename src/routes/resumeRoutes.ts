@@ -46,4 +46,8 @@ router.post(
   resumeController.batchAnalyzeResumes
 );
 
+// AI-powered endpoints
+router.post("/verify-candidate", resumeController.verifyCandidateInfo);
+router.post("/generate-screening-qa", resumeController.generateScreeningQA);
+
 export default router;

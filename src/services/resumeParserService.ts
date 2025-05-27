@@ -1,13 +1,13 @@
 import pdfParse from "pdf-parse";
 import mammoth from "mammoth";
 import { GroqService } from "./groqService";
-import { 
-  ParsedResume, 
-  WorkExperience, 
-  Education, 
-  Project, 
+import {
+  ParsedResume,
+  WorkExperience,
+  Education,
+  Project,
   Certification,
-  SkillExtractionResult 
+  SkillExtractionResult,
 } from "../types/resume";
 
 export class ResumeParserService {
@@ -22,15 +22,16 @@ export class ResumeParserService {
    */
   async parseResume(file: Express.Multer.File): Promise<ParsedResume> {
     const startTime = Date.now();
-    
+
     try {
       // Extract text from file based on type
       let extractedText: string;
-      
+
       if (file.mimetype === "application/pdf") {
         extractedText = await this.extractTextFromPDF(file.buffer);
       } else if (
-        file.mimetype === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+        file.mimetype ===
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
         file.mimetype === "application/msword"
       ) {
         extractedText = await this.extractTextFromWord(file.buffer);
@@ -42,16 +43,20 @@ export class ResumeParserService {
 
       // Parse resume using AI
       const parsedData = await this.parseResumeWithAI(extractedText);
-      
+
       const processingTime = Date.now() - startTime;
-      
+
       return {
         ...parsedData,
         extractedText,
-        confidence: this.calculateConfidence(parsedData, extractedText)
+        confidence: this.calculateConfidence(parsedData, extractedText),
       };
     } catch (error) {
-      throw new Error(`Failed to parse resume: ${error instanceof Error ? error.message : "Unknown error"}`);
+      throw new Error(
+        `Failed to parse resume: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
     }
   }
 
@@ -63,7 +68,11 @@ export class ResumeParserService {
       const skillsData = await this.extractSkillsWithAI(resumeText);
       return skillsData;
     } catch (error) {
-      throw new Error(`Failed to extract skills: ${error instanceof Error ? error.message : "Unknown error"}`);
+      throw new Error(
+        `Failed to extract skills: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
     }
   }
 
@@ -94,7 +103,9 @@ export class ResumeParserService {
   /**
    * Parse resume content using AI
    */
-  private async parseResumeWithAI(text: string): Promise<Omit<ParsedResume, "extractedText" | "confidence">> {
+  private async parseResumeWithAI(
+    text: string
+  ): Promise<Omit<ParsedResume, "extractedText" | "confidence">> {
     try {
       const prompt = `
         Parse the following resume text and extract structured information. Return a JSON response with the following structure:
@@ -170,10 +181,10 @@ export class ResumeParserService {
       `;
 
       const response = await this.groqService.parseResumeContent(prompt);
-      
+
       // Strip markdown code blocks if present (Groq sometimes wraps JSON in ```json...```)
       const cleanedResponse = this.stripMarkdownCodeBlocks(response);
-      
+
       return JSON.parse(cleanedResponse);
     } catch (error) {
       console.error("Error parsing resume with AI:", error);
@@ -183,7 +194,7 @@ export class ResumeParserService {
           name: "",
           email: "",
           phone: "",
-          location: ""
+          location: "",
         },
         summary: "",
         skills: {
@@ -192,12 +203,12 @@ export class ResumeParserService {
           languages: [],
           tools: [],
           databases: [],
-          cloud: []
+          cloud: [],
         },
         experience: [],
         education: [],
         projects: [],
-        certifications: []
+        certifications: [],
       };
     }
   }
@@ -205,7 +216,9 @@ export class ResumeParserService {
   /**
    * Extract skills using AI
    */
-  private async extractSkillsWithAI(text: string): Promise<SkillExtractionResult> {
+  private async extractSkillsWithAI(
+    text: string
+  ): Promise<SkillExtractionResult> {
     try {
       const prompt = `
         Analyze the following resume text and extract detailed skill information. Return a JSON response with this structure:
@@ -234,10 +247,10 @@ export class ResumeParserService {
       `;
 
       const response = await this.groqService.parseResumeContent(prompt);
-      
+
       // Strip markdown code blocks if present (Groq sometimes wraps JSON in ```json...```)
       const cleanedResponse = this.stripMarkdownCodeBlocks(response);
-      
+
       return JSON.parse(cleanedResponse);
     } catch (error) {
       console.error("Error extracting skills with AI:", error);
@@ -248,16 +261,16 @@ export class ResumeParserService {
           languages: [],
           tools: [],
           databases: [],
-          cloud: []
+          cloud: [],
         },
         experience: {
           totalYears: 0,
           seniority: "junior",
           primaryRole: "",
-          industries: []
+          industries: [],
         },
         confidence: 0,
-        suggestions: []
+        suggestions: [],
       };
     }
   }
@@ -265,7 +278,10 @@ export class ResumeParserService {
   /**
    * Calculate confidence score for parsed resume
    */
-  private calculateConfidence(parsedData: Omit<ParsedResume, "extractedText" | "confidence">, text: string): number {
+  private calculateConfidence(
+    parsedData: Omit<ParsedResume, "extractedText" | "confidence">,
+    text: string
+  ): number {
     let score = 0;
     const maxScore = 100;
 
@@ -282,17 +298,19 @@ export class ResumeParserService {
     // Experience section (25 points)
     if (parsedData.experience.length > 0) {
       score += 15;
-      if (parsedData.experience.some(exp => exp.description.length > 0)) score += 10;
+      if (parsedData.experience.some((exp) => exp.description.length > 0))
+        score += 10;
     }
 
     // Education section (15 points)
     if (parsedData.education.length > 0) {
       score += 10;
-      if (parsedData.education.some(edu => edu.degree && edu.institution)) score += 5;
+      if (parsedData.education.some((edu) => edu.degree && edu.institution))
+        score += 5;
     }
 
     // Projects section (10 points)
-    if (parsedData.projects.length > 0) score += 10;    // Summary section (5 points)
+    if (parsedData.projects.length > 0) score += 10; // Summary section (5 points)
     if (parsedData.summary && parsedData.summary.length > 50) score += 5;
 
     return Math.min(1, score / maxScore);
@@ -306,11 +324,11 @@ export class ResumeParserService {
     // Remove markdown code blocks (```json...``` or ```...```)
     const codeBlockPattern = /^```(?:json)?\s*\n?([\s\S]*?)\n?```$/;
     const match = response.trim().match(codeBlockPattern);
-    
+
     if (match) {
       return match[1].trim();
     }
-    
+
     // If no code blocks found, return the original response
     return response.trim();
   }
