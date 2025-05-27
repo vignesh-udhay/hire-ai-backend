@@ -442,6 +442,12 @@ Please analyze this candidate's profile and provide verification insights.`,
     }>;
   }> {
     try {
+      console.log(
+        "Generating screening Q&A with resume text length:",
+        resumeText.length
+      );
+      console.log("Job description length:", jobDescription.length);
+
       const completion = await this.groq.chat.completions.create({
         messages: [
           {
@@ -482,13 +488,22 @@ Please generate 5 screening questions with expected answers for this candidate.`
       });
 
       const responseText = completion.choices[0]?.message?.content || "{}";
+      console.log("Raw AI response:", responseText);
+      console.log("Response length:", responseText.length);
 
       try {
-        const parsed = JSON.parse(responseText);
+        // Strip markdown code blocks if present
+        const cleanedResponse = this.stripMarkdownCodeBlocks(responseText);
+        console.log("Cleaned response:", cleanedResponse);
+
+        const parsed = JSON.parse(cleanedResponse);
+        console.log("Parsed response:", parsed);
         return {
           questions: parsed.questions || [],
         };
       } catch (parseError) {
+        console.error("JSON parsing failed:", parseError);
+        console.log("Failed to parse response:", responseText);
         // Fallback if JSON parsing fails
         return {
           questions: [],
