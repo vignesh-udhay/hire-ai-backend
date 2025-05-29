@@ -17,6 +17,7 @@ app.use(
       "http://localhost:5173",
       "http://localhost:3000",
       "http://localhost:4173",
+      "https://ai-recruiter-master.lovable.app",
     ],
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
