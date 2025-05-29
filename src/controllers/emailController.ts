@@ -6,7 +6,8 @@ const groqService = new GroqService();
 
 export const generateOutreachMessage = async (req: Request, res: Response) => {
   try {
-    const { candidate, roleTitle, companyName } = req.body;
+    const { candidate, roleTitle, companyName, recruiterName, recruiterTitle } =
+      req.body;
 
     if (!candidate || !roleTitle || !companyName) {
       return res.status(400).json({
@@ -19,12 +20,16 @@ export const generateOutreachMessage = async (req: Request, res: Response) => {
       candidate,
       roleTitle,
       companyName,
+      recruiterName,
+      recruiterTitle,
     });
 
     const { subject, message } = await groqService.generateOutreachEmail(
       candidate,
       roleTitle,
-      companyName
+      companyName,
+      recruiterName,
+      recruiterTitle
     );
 
     console.log("Generated message:", { subject, message });
@@ -45,20 +50,24 @@ export const generateOutreachMessage = async (req: Request, res: Response) => {
 
 export const sendOutreachEmail = async (req: Request, res: Response) => {
   try {
-    const { candidateId, subject, message } = req.body;
+    const { candidateId, recipientEmail, subject, message } = req.body;
 
-    if (!candidateId || !subject || !message) {
+    if (!candidateId || !recipientEmail || !subject || !message) {
       return res.status(400).json({
         error:
-          "Missing required fields: candidateId, subject, and message are required",
+          "Missing required fields: candidateId, recipientEmail, subject, and message are required",
       });
     }
 
-    // TODO: Get candidate email from database
-    // For now, we'll use a placeholder email
-    const candidateEmail = `${candidateId}@example.com`;
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(recipientEmail)) {
+      return res.status(400).json({
+        error: "Invalid email format for recipientEmail",
+      });
+    }
 
-    await sendCandidateOutreach(candidateEmail, subject, message);
+    await sendCandidateOutreach(recipientEmail, subject, message);
 
     res.json({
       success: true,

@@ -198,7 +198,9 @@ export class GroqService {
       summary: string;
     },
     roleTitle: string,
-    companyName: string
+    companyName: string,
+    recruiterName: string = "Alex Johnson",
+    recruiterTitle: string = "Senior Technical Recruiter"
   ): Promise<{ subject: string; message: string }> {
     try {
       console.log("Starting email generation with Groq...");
@@ -210,6 +212,7 @@ Skills: ${candidate.skills.join(", ")}
 Summary: ${candidate.summary}
 
 The email should be for a ${roleTitle} position at ${companyName}.
+The email will be sent by ${recruiterName}, ${recruiterTitle} at ${companyName}.
 
 Generate both a subject line and the email body. The email should:
 1. Be personalized based on their experience and skills
@@ -217,12 +220,26 @@ Generate both a subject line and the email body. The email should:
 3. Be concise but engaging
 4. Include a clear call to action
 5. Be professional but conversational
+6. End with a proper signature using the recruiter's name and title
+
+IMPORTANT: The email signature must be properly formatted with line breaks. The message should end with two line breaks before the signature, then the signature should have line breaks between each line.
 
 Return the response in the following JSON format:
 {
   "subject": "string",
   "message": "string"
 }
+
+The message should end with a properly formatted signature like this:
+
+[email body content]
+
+Best regards,
+${recruiterName}
+${recruiterTitle}
+${companyName}
+
+Make sure there are proper line breaks (\\n) in the message string to separate the signature from the body and between signature lines.
 
 Do not include any markdown formatting or explanations.`;
 
@@ -263,7 +280,42 @@ Do not include any markdown formatting or explanations.`;
             "Response missing required fields (subject or message)"
           );
         }
-        return parsedResponse;
+
+        // Post-process the message to ensure proper signature formatting
+        let message = parsedResponse.message;
+
+        // Ensure proper signature formatting
+        const signaturePattern =
+          /(Best regards,?\s*)([^\n]*)\s*([^\n]*)\s*([^\n]*)/i;
+        if (signaturePattern.test(message)) {
+          // If signature exists but not properly formatted, fix it
+          message = message.replace(
+            signaturePattern,
+            (
+              _match: string,
+              _greeting: string,
+              name: string,
+              title: string,
+              company: string
+            ) => {
+              const cleanName = name?.trim() || recruiterName;
+              const cleanTitle = title?.trim() || recruiterTitle;
+              const cleanCompany = company?.trim() || companyName;
+
+              return `\n\nBest regards,\n${cleanName}\n${cleanTitle}\n${cleanCompany}`;
+            }
+          );
+        } else {
+          // If no signature found, add one
+          message =
+            message.trim() +
+            `\n\nBest regards,\n${recruiterName}\n${recruiterTitle}\n${companyName}`;
+        }
+
+        return {
+          subject: parsedResponse.subject,
+          message: message,
+        };
       } catch (error) {
         console.error("Error parsing JSON response:", error);
         console.error("Failed to parse response:", cleanedResponse);

@@ -11,6 +11,16 @@ for (const envVar of requiredEnvVars) {
   }
 }
 
+// Email configuration validation (optional for development)
+if (process.env.NODE_ENV === "production") {
+  const requiredEmailVars = ["EMAIL_USER", "EMAIL_PASSWORD"] as const;
+  for (const envVar of requiredEmailVars) {
+    if (!process.env[envVar]) {
+      console.warn(`Missing email environment variable: ${envVar}. Email functionality will use test mode.`);
+    }
+  }
+}
+
 // Export configuration
 export const config = {
   groq: {
